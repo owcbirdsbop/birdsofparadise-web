@@ -5,7 +5,7 @@ export default function HomePage() {
     <main className="min-h-screen bg-stone-50 text-stone-800 font-sans">
       {/* Top Banner */}
       <div className="bg-amber-800 text-amber-50 px-4 py-2 text-center text-sm font-medium tracking-wide">
-        Visit our Wichita Showroom at 1842 S. Woodlawn Blvd &bull; Caring for Kansas Flocks Since the 1950s
+        Visit our Wichita Showroom at 1842 S. Woodlawn Blvd
       </div>
 
       {/* Navigation */}
