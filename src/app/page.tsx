@@ -35,7 +35,6 @@ export default function HomePage() {
           A Gentle, Ethical Home for Kansas Birds & Their Families
         </h1>
         <p className="text-lg text-stone-600 leading-relaxed max-w-2xl mx-auto mb-8">
-          Continuing a proud legacy rooted in Wall Seed Co. and four decades of Birds of Paradise. 
           We provide locally crafted natural enrichment, custom nutrition, and an unhurried, visit-first environment.
         </p>
         <div className="flex flex-wrap justify-center gap-4">
