@@ -50,11 +50,11 @@ export async function POST(req: Request) {
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
 
-    const customerEmail = session.customer_details?.email || session.customer_email || '';
-    const customerName = session.metadata?.customer_name || session.customer_details?.name || 'Store Customer';
-    const clientCode = session.metadata?.customer_code || 'GUEST';
-    const transactionId = session.id;
-    const paymentIntentId = typeof session.payment_intent === 'string' ? session.payment_intent : '';
+    const customerName = session.metadata?.customer_name || session.customer_details?.name || 'Online Customer';
+    const customerCode = session.metadata?.customer_code || 'WEB-ONLINE';
+    // Use Stripe Session ID or Payment Intent as the receipt number
+    const receiptNumber = session.id.slice(-16).toUpperCase();
+    const currentDate = new Date().toISOString();
 
     // Retrieve items stored in session metadata
     let lineItems = [];
@@ -66,21 +66,21 @@ export async function POST(req: Request) {
       }
     }
 
-    // Insert sales records into client_sales_history
     if (lineItems.length > 0) {
       const recordsToInsert = lineItems.map((item: any) => ({
-        client_code: clientCode,
-        client_name: customerName,
-        client_email: customerEmail,
-        item_sku: item.sku || 'WEB-SKU',
+        receipt_number: receiptNumber,
+        sale_date: currentDate,
+        customer_code: customerCode,
+        customer_name: customerName,
+        client_code: customerCode,
+        sku: item.sku || 'ONLINE-ITEM',
         item_name: item.name,
         quantity: item.quantity || 1,
-        subtotal: item.subtotal || item.total,
-        tax: item.tax || '0.00',
-        total: item.total,
-        transaction_id: transactionId,
-        payment_intent_id: paymentIntentId,
-        sale_date: new Date().toISOString(),
+        subtotal: Number(item.subtotal || item.total || 0),
+        sales_tax: Number(item.tax || 0),
+        total_price: Number(item.total || 0),
+        register: 'Stripe Web Checkout',
+        cashier: 'Online Self-Checkout',
       }));
 
       const { error: dbError } = await supabase
@@ -92,28 +92,30 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: dbError.message }, { status: 500 });
       }
     } else {
-      // Fallback: single summary record if item payload was empty
+      // Fallback: single summary record if detailed cart payload wasn't present
+      const orderTotal = Number(((session.amount_total || 0) / 100).toFixed(2));
       const { error: dbError } = await supabase
         .from('client_sales_history')
         .insert([
           {
-            client_code: clientCode,
-            client_name: customerName,
-            client_email: customerEmail,
-            item_sku: 'ORDER-TOTAL',
+            receipt_number: receiptNumber,
+            sale_date: currentDate,
+            customer_code: customerCode,
+            customer_name: customerName,
+            client_code: customerCode,
+            sku: 'ORDER-TOTAL',
             item_name: 'Online Checkout Order',
             quantity: 1,
-            subtotal: ((session.amount_total || 0) / 100).toFixed(2),
-            tax: '0.00',
-            total: ((session.amount_total || 0) / 100).toFixed(2),
-            transaction_id: transactionId,
-            payment_intent_id: paymentIntentId,
-            sale_date: new Date().toISOString(),
+            subtotal: orderTotal,
+            sales_tax: 0,
+            total_price: orderTotal,
+            register: 'Stripe Web Checkout',
+            cashier: 'Online Self-Checkout',
           },
         ]);
 
       if (dbError) {
-        console.error('Supabase fallback write error:', dbError);
+        console.error('Supabase write error (fallback):', dbError);
         return NextResponse.json({ error: dbError.message }, { status: 500 });
       }
     }
