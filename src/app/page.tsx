@@ -59,7 +59,9 @@ export default function HomePage() {
         <div className="max-w-3xl mx-auto text-center">
           <h2 className="text-2xl font-bold text-stone-900 mb-3">Our In-Person Companion Philosophy</h2>
           <p className="text-stone-700 leading-relaxed mb-4">
-            Every companion bird is a lifelong family member, not cargo. <strong>We do not ship live birds under any circumstance.</strong>
+            Every companion bird is a lifelong family member, not cargo.
+            <br />
+            <strong>We do not ship live birds under any circumstance.</strong>
           </p>
           <p className="text-stone-600 text-sm leading-relaxed">
             We invite prospective families to visit our Wichita nursery in person, spend unhurried time with our companions, and let the right bond form naturally with zero sales pressure.
@@ -122,7 +124,7 @@ export default function HomePage() {
                 Shop dry goods, handcrafted toys, and custom nutrition directly online with dedicated workshop stock.
               </p>
               <Link 
-                href="/store"
+                href="/store" 
                 className="text-xs font-bold text-amber-400 hover:text-amber-300 hover:underline"
               >
                 Visit the Full Online Store &rarr;
