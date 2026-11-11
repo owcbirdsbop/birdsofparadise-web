@@ -1,12 +1,21 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2025-01-27.acacia' as any,
-});
-
 export async function POST(req: Request) {
   try {
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (!secretKey) {
+      console.error('Missing STRIPE_SECRET_KEY in environment variables.');
+      return NextResponse.json(
+        { error: 'Server configuration error: Stripe key missing.' },
+        { status: 500 }
+      );
+    }
+
+    const stripe = new Stripe(secretKey, {
+      apiVersion: '2025-01-27.acacia' as any,
+    });
+
     const { items, customerEmail, customerName, clientCode } = await req.json();
 
     if (!items || items.length === 0) {
@@ -15,7 +24,6 @@ export async function POST(req: Request) {
 
     const origin = req.headers.get('origin') || 'https://birdsofparadiseks.net';
 
-    // Format cart items for Stripe Checkout
     const line_items = items.map((item: any) => ({
       price_data: {
         currency: 'usd',
@@ -30,7 +38,6 @@ export async function POST(req: Request) {
       quantity: Number(item.quantity) || 1,
     }));
 
-    // In modern Stripe SDKs, omitted payment_method_types uses your dashboard's enabled payment methods (cards, Apple Pay, Google Pay, etc.)
     const session = await stripe.checkout.sessions.create({
       customer_email: customerEmail || undefined,
       line_items,
