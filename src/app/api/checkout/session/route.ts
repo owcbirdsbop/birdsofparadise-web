@@ -1,50 +1,62 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import Stripe from 'stripe';
 
-// Server-side admin client to write safely bypassing RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2025-01-27.acacia' as any,
+});
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { email, name, items, subtotal, tax, total } = body;
+    const { items, customerEmail, customerName, clientCode } = await req.json();
 
-    if (!email || !items || items.length === 0) {
-      return NextResponse.json(
-        { error: 'Email and items are required.' },
-        { status: 400 }
-      );
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: 'Cart is empty.' }, { status: 400 });
     }
 
-    // Generate unique web receipt number
-    const receiptNumber = `WEB-${Date.now().toString().slice(-6)}`;
+    const origin = req.headers.get('origin') || 'http://localhost:3000';
 
-    // Invoke the SQL procedure
-    const { data, error } = await supabaseAdmin.rpc('record_web_order', {
-      p_customer_email: email,
-      p_customer_name: name || 'Valued Flock Customer',
-      p_receipt_number: receiptNumber,
-      p_subtotal: subtotal,
-      p_sales_tax: tax,
-      p_total_price: total,
-      p_items: items,
+    // Format line items for Stripe Checkout
+    const line_items = items.map((item: any) => ({
+      price_data: {
+        currency: 'usd',
+        product_data: {
+          name: item.item_name || item.name || 'Store Item',
+          metadata: {
+            sku: item.sku || 'WEB-SKU',
+          },
+        },
+        unit_amount: Math.round(Number(item.price) * 100),
+      },
+      quantity: Number(item.quantity) || 1,
+    }));
+
+    // Create session (customer_email is optional here—Stripe will ask for it if guest)
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      customer_email: customerEmail || undefined,
+      line_items,
+      mode: 'payment',
+      success_url: `${origin}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${origin}/store?canceled=true`,
+      metadata: {
+        customer_name: customerName || '',
+        customer_code: clientCode || '',
+        cart_payload: JSON.stringify(
+          items.map((i: any) => ({
+            sku: i.sku || 'WEB-SKU',
+            name: i.item_name || i.name,
+            quantity: i.quantity || 1,
+            total: (Number(i.price) * (i.quantity || 1)).toFixed(2),
+            subtotal: (Number(i.price) * (i.quantity || 1)).toFixed(2),
+            tax: '0.00',
+          }))
+        ),
+      },
     });
 
-    if (error) {
-      console.error('Order recording error:', error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      success: true,
-      receiptNumber,
-      customerCode: data.customer_code,
-    });
+    return NextResponse.json({ url: session.url });
   } catch (err: any) {
-    console.error('Checkout route error:', err);
+    console.error('Stripe session route error:', err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
