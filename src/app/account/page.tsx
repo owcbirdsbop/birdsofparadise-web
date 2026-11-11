@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
@@ -26,6 +26,8 @@ interface ReceiptGroup {
   items: OrderLineItem[];
 }
 
+const PAGE_SIZE = 5;
+
 export default function AccountPage() {
   const router = useRouter();
   const [client, setClient] = useState<any>(null);
@@ -34,6 +36,10 @@ export default function AccountPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [successNotice, setSuccessNotice] = useState(false);
+
+  // Pagination & Search state
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Newsletter state
   const [marketingSubscribed, setMarketingSubscribed] = useState(false);
@@ -60,14 +66,12 @@ export default function AccountPage() {
 
         const userEmail = user.email?.toLowerCase().trim();
 
-        // 1. Fetch client by auth_user_id first
         let { data: clientRecord } = await supabase
           .from('clients')
           .select('*')
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
-        // 2. Fall back to email match and link auth_user_id
         if (!clientRecord && userEmail) {
           const { data: emailMatch } = await supabase
             .from('clients')
@@ -98,7 +102,6 @@ export default function AccountPage() {
             Boolean(clientRecord.opted_in_marketing || clientRecord.enable_promotional_emails === 1)
           );
 
-          // 3. Fetch sales history for this client
           if (clientRecord.customer_code) {
             const { data: salesRows, error: salesError } = await supabase
               .from('client_sales_history')
@@ -157,6 +160,23 @@ export default function AccountPage() {
 
     loadAccount();
   }, [router]);
+
+  // Filter receipts by search query (receipt number or item name)
+  const filteredOrders = useMemo(() => {
+    if (!searchQuery.trim()) return orders;
+    const query = searchQuery.toLowerCase().trim();
+    return orders.filter((order) => {
+      const matchReceipt = order.receipt_number.toLowerCase().includes(query);
+      const matchItem = order.items.some((item) =>
+        item.item_name.toLowerCase().includes(query) || item.sku.toLowerCase().includes(query)
+      );
+      return matchReceipt || matchItem;
+    });
+  }, [orders, searchQuery]);
+
+  const displayedOrders = useMemo(() => {
+    return filteredOrders.slice(0, visibleCount);
+  }, [filteredOrders, visibleCount]);
 
   const handleToggleNewsletter = async () => {
     if (!client || updatingMarketing) return;
@@ -289,8 +309,8 @@ export default function AccountPage() {
         </div>
 
         {/* Sales & Orders History Section */}
-        <div className="bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
+        <div className="bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-extrabold text-stone-900">
                 Purchase &amp; Receipt History
@@ -299,10 +319,37 @@ export default function AccountPage() {
                 Complete record of in-store showroom and workshop transactions.
               </p>
             </div>
-            <span className="text-xs font-bold text-stone-500 bg-stone-100 px-2.5 py-1 rounded-full">
-              {orders.length} {orders.length === 1 ? 'Receipt' : 'Receipts'}
+            <span className="text-xs font-bold text-stone-500 bg-stone-100 px-2.5 py-1 rounded-full self-start sm:self-auto">
+              {orders.length} {orders.length === 1 ? 'Total Receipt' : 'Total Receipts'}
             </span>
           </div>
+
+          {/* Search Filter Bar (Active if customer has 2+ receipts) */}
+          {orders.length > 1 && (
+            <div className="pt-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    setVisibleCount(PAGE_SIZE);
+                  }}
+                  placeholder="Search by receipt number, item name, or SKU..."
+                  className="w-full text-xs bg-stone-50 border border-stone-200 rounded-xl px-3.5 py-2.5 pl-9 text-stone-800 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-emerald-700 focus:bg-white transition"
+                />
+                <span className="absolute left-3 top-2.5 text-stone-400 text-xs">🔍</span>
+                {searchQuery && (
+                  <button
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-3 top-2.5 text-stone-400 hover:text-stone-700 text-xs font-bold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {orders.length === 0 ? (
             <div className="border border-dashed border-stone-200 rounded-xl p-8 text-center bg-stone-50/50">
@@ -312,98 +359,132 @@ export default function AccountPage() {
                 Receipts linked to your customer code ({client?.customer_code || 'pending'}) will appear here automatically.
               </p>
             </div>
+          ) : filteredOrders.length === 0 ? (
+            <div className="border border-dashed border-stone-200 rounded-xl p-6 text-center text-xs text-stone-500 bg-stone-50/40">
+              No receipts match &ldquo;{searchQuery}&rdquo;. Try another term or clear the filter.
+            </div>
           ) : (
             <div className="space-y-3">
-              {orders.map((order) => {
-                const isExpanded = expandedReceipt === order.receipt_number;
+              {/* Max-height scrollable window to maintain a compact vertical profile */}
+              <div className="max-h-[560px] overflow-y-auto space-y-3 pr-1 divide-y divide-stone-100">
+                {displayedOrders.map((order) => {
+                  const isExpanded = expandedReceipt === order.receipt_number;
 
-                return (
-                  <div
-                    key={order.receipt_number}
-                    className="border border-stone-200 rounded-xl overflow-hidden transition"
-                  >
-                    {/* Receipt Accordion Header */}
+                  return (
                     <div
-                      onClick={() => toggleReceipt(order.receipt_number)}
-                      className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 cursor-pointer hover:bg-stone-50 select-none transition"
+                      key={order.receipt_number}
+                      className="border border-stone-200 rounded-xl overflow-hidden transition first:mt-0 mt-3"
                     >
-                      <div className="space-y-0.5">
-                        <div className="flex items-center gap-2">
-                          <span className="font-extrabold text-sm text-stone-900">
-                            Receipt #{order.receipt_number}
-                          </span>
-                          <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-                            Completed
+                      {/* Compact Summary Header */}
+                      <div
+                        onClick={() => toggleReceipt(order.receipt_number)}
+                        className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 cursor-pointer hover:bg-stone-50 select-none transition"
+                      >
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <span className="font-extrabold text-sm text-stone-900">
+                              Receipt #{order.receipt_number}
+                            </span>
+                            <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              Completed
+                            </span>
+                          </div>
+                          <p className="text-xs text-stone-500">
+                            {new Date(order.sale_date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                            {order.register ? ` • Register: ${order.register}` : ''}
+                            <span className="text-stone-400 ml-1">
+                              ({order.items.length} {order.items.length === 1 ? 'item' : 'items'})
+                            </span>
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
+                          <div className="text-right">
+                            <span className="text-[10px] uppercase font-bold text-stone-400 block">
+                              Total
+                            </span>
+                            <span className="text-sm font-black text-stone-900">
+                              ${order.total_amount.toFixed(2)}
+                            </span>
+                          </div>
+                          <span className="text-stone-400 text-xs font-bold px-2 py-1 bg-stone-100 rounded-lg">
+                            {isExpanded ? '▲ Hide' : '▼ View Items'}
                           </span>
                         </div>
-                        <p className="text-xs text-stone-500">
-                          {new Date(order.sale_date).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                          {order.register ? ` • Register: ${order.register}` : ''}
-                        </p>
                       </div>
 
-                      <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
-                        <div className="text-right">
-                          <span className="text-[10px] uppercase font-bold text-stone-400 block">
-                            Total
-                          </span>
-                          <span className="text-sm font-black text-stone-900">
-                            ${order.total_amount.toFixed(2)}
-                          </span>
-                        </div>
-                        <span className="text-stone-400 text-xs font-bold px-2 py-1 bg-stone-100 rounded-lg">
-                          {isExpanded ? '▲ Hide' : '▼ View Items'}
-                        </span>
-                      </div>
-                    </div>
+                      {/* Line Items Table */}
+                      {isExpanded && (
+                        <div className="border-t border-stone-200 bg-stone-50/70 p-4 space-y-3">
+                          <div className="divide-y divide-stone-200 text-xs max-h-60 overflow-y-auto pr-1">
+                            {order.items.map((item, idx) => (
+                              <div key={idx} className="py-2.5 flex justify-between items-center">
+                                <div className="space-y-0.5">
+                                  <p className="font-bold text-stone-800">{item.item_name}</p>
+                                  <p className="text-[11px] text-stone-500">
+                                    SKU: {item.sku || 'N/A'} • Qty: {item.quantity}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <span className="font-bold text-stone-900">
+                                    ${item.total_price.toFixed(2)}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
 
-                    {/* Expandable Line Items Table */}
-                    {isExpanded && (
-                      <div className="border-t border-stone-200 bg-stone-50/70 p-4 space-y-3">
-                        <div className="divide-y divide-stone-200 text-xs">
-                          {order.items.map((item, idx) => (
-                            <div key={idx} className="py-2.5 flex justify-between items-center">
-                              <div className="space-y-0.5">
-                                <p className="font-bold text-stone-800">{item.item_name}</p>
-                                <p className="text-[11px] text-stone-500">
-                                  SKU: {item.sku || 'N/A'} • Qty: {item.quantity}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-bold text-stone-900">
-                                  ${item.total_price.toFixed(2)}
-                                </span>
-                              </div>
+                          <div className="border-t border-stone-200 pt-3 flex flex-col items-end gap-1 text-xs text-stone-600">
+                            <div className="flex justify-between w-44">
+                              <span>Subtotal:</span>
+                              <span className="font-medium">${order.total_subtotal.toFixed(2)}</span>
                             </div>
-                          ))}
+                            <div className="flex justify-between w-44">
+                              <span>Sales Tax:</span>
+                              <span className="font-medium">${order.total_tax.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between w-44 font-bold text-stone-900 text-sm pt-1 border-t border-stone-200">
+                              <span>Total:</span>
+                              <span>${order.total_amount.toFixed(2)}</span>
+                            </div>
+                          </div>
                         </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
-                        {/* Breakdown Totals */}
-                        <div className="border-t border-stone-200 pt-3 flex flex-col items-end gap-1 text-xs text-stone-600">
-                          <div className="flex justify-between w-44">
-                            <span>Subtotal:</span>
-                            <span className="font-medium">${order.total_subtotal.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between w-44">
-                            <span>Sales Tax:</span>
-                            <span className="font-medium">${order.total_tax.toFixed(2)}</span>
-                          </div>
-                          <div className="flex justify-between w-44 font-bold text-stone-900 text-sm pt-1 border-t border-stone-200">
-                            <span>Total:</span>
-                            <span>${order.total_amount.toFixed(2)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {/* Show More / Show Less Controls */}
+              {filteredOrders.length > visibleCount && (
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+                    className="text-xs font-bold text-emerald-800 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-4 py-2 rounded-xl transition cursor-pointer"
+                  >
+                    Load More Receipts ({filteredOrders.length - visibleCount} remaining)
+                  </button>
+                </div>
+              )}
+
+              {visibleCount > PAGE_SIZE && filteredOrders.length <= visibleCount && (
+                <div className="pt-2 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleCount(PAGE_SIZE)}
+                    className="text-xs font-bold text-stone-500 hover:text-stone-700 bg-stone-100 px-3 py-1.5 rounded-lg transition"
+                  >
+                    Collapse to Recent 5
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
