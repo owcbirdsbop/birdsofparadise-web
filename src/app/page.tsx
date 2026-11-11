@@ -9,7 +9,7 @@ export default function HomePage() {
   return (
     <main className="min-h-screen bg-stone-50 text-stone-800 font-sans">
       <div className="bg-amber-800 text-amber-50 px-4 py-2 text-center text-sm font-medium tracking-wide">
-        Visit our Wichita Showroom at 1842 S. Woodlawn Blvd
+        Visit our Wichita Store at 1842 S. Woodlawn Blvd, Wichita, Kansas 67218
       </div>
 
       <nav className="max-w-6xl mx-auto px-6 py-5 flex items-center justify-between border-b border-stone-200">
