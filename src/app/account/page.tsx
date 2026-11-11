@@ -26,6 +26,15 @@ interface ReceiptGroup {
   items: OrderLineItem[];
 }
 
+interface NewsletterEdition {
+  id: number;
+  title: string;
+  edition_number: string;
+  summary: string;
+  published_date: string;
+  view_url?: string;
+}
+
 const PAGE_SIZE = 5;
 
 export default function AccountPage() {
@@ -37,14 +46,16 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [successNotice, setSuccessNotice] = useState(false);
 
-  // Pagination & Search state
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-  const [searchQuery, setSearchQuery] = useState('');
-
-  // Newsletter state
+  // Newsletter & Archive State
   const [marketingSubscribed, setMarketingSubscribed] = useState(false);
   const [updatingMarketing, setUpdatingMarketing] = useState(false);
   const [newsletterNotice, setNewsletterNotice] = useState<string | null>(null);
+  const [editions, setEditions] = useState<NewsletterEdition[]>([]);
+  const [showArchive, setShowArchive] = useState(false);
+
+  // Pagination & Search state
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Form fields
   const [firstName, setFirstName] = useState('');
@@ -66,12 +77,14 @@ export default function AccountPage() {
 
         const userEmail = user.email?.toLowerCase().trim();
 
+        // 1. Fetch client by auth_user_id
         let { data: clientRecord } = await supabase
           .from('clients')
           .select('*')
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
+        // 2. Fall back to email match and link auth_user_id
         if (!clientRecord && userEmail) {
           const { data: emailMatch } = await supabase
             .from('clients')
@@ -102,6 +115,7 @@ export default function AccountPage() {
             Boolean(clientRecord.opted_in_marketing || clientRecord.enable_promotional_emails === 1)
           );
 
+          // 3. Fetch sales history
           if (clientRecord.customer_code) {
             const { data: salesRows, error: salesError } = await supabase
               .from('client_sales_history')
@@ -151,8 +165,18 @@ export default function AccountPage() {
             }
           }
         }
+
+        // 4. Load published newsletter archive
+        const { data: editionRows } = await supabase
+          .from('newsletter_editions')
+          .select('*')
+          .order('published_date', { ascending: false });
+
+        if (editionRows) {
+          setEditions(editionRows);
+        }
       } catch (err) {
-        console.error('Error loading account:', err);
+        console.error('Error loading account data:', err);
       } finally {
         setLoading(false);
       }
@@ -161,7 +185,6 @@ export default function AccountPage() {
     loadAccount();
   }, [router]);
 
-  // Filter receipts by search query (receipt number or item name)
   const filteredOrders = useMemo(() => {
     if (!searchQuery.trim()) return orders;
     const query = searchQuery.toLowerCase().trim();
@@ -308,7 +331,121 @@ export default function AccountPage() {
           </div>
         </div>
 
-        {/* Sales & Orders History Section */}
+        {/* PROMINENT TOP PLACEMENT: Flock Updates & Newsletter Archive */}
+        <div className="bg-white border border-stone-200 rounded-2xl p-6 sm:p-7 shadow-sm space-y-5">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-base font-extrabold text-stone-900">
+                  Flock Updates &amp; Newsletter
+                </span>
+                <span
+                  className={`text-[10px] uppercase font-bold px-2.5 py-0.5 rounded-full ${
+                    marketingSubscribed
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-stone-100 text-stone-600'
+                  }`}
+                >
+                  {marketingSubscribed ? 'Subscribed' : 'Not Subscribed'}
+                </span>
+              </div>
+              <p className="text-xs text-stone-500 max-w-lg">
+                Seasonal batches, nursery announcements, and workshop discounts sent directly to{' '}
+                <span className="font-semibold text-stone-700">{client?.email}</span>.
+              </p>
+              {newsletterNotice && (
+                <p className="text-xs font-bold text-emerald-800 pt-1 transition">
+                  {newsletterNotice}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+              {editions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowArchive((prev) => !prev)}
+                  className="text-xs font-bold text-stone-600 hover:text-stone-900 bg-stone-100 hover:bg-stone-200 px-3.5 py-2 rounded-xl transition cursor-pointer"
+                >
+                  {showArchive ? '▲ Hide Past Editions' : `📚 Past Editions (${editions.length})`}
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={handleToggleNewsletter}
+                disabled={updatingMarketing}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                  marketingSubscribed
+                    ? 'bg-white hover:bg-rose-50 text-stone-700 hover:text-rose-700 border border-stone-300'
+                    : 'bg-[#065f46] hover:bg-[#044331] text-white shadow-sm'
+                } disabled:opacity-50`}
+              >
+                {updatingMarketing ? (
+                  'Updating...'
+                ) : marketingSubscribed ? (
+                  'Unsubscribe'
+                ) : (
+                  'Subscribe to Updates'
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Past Newsletter Editions Drawer */}
+          {showArchive && (
+            <div className="border-t border-stone-200 pt-4 space-y-3">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400">
+                Published Editions Library
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {editions.map((edition) => (
+                  <div
+                    key={edition.id}
+                    className="p-4 bg-stone-50 border border-stone-200 rounded-xl flex flex-col justify-between space-y-2 hover:border-emerald-300 transition"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-stone-400 mb-1">
+                        <span className="font-extrabold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                          {edition.edition_number}
+                        </span>
+                        <span>
+                          {new Date(edition.published_date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                      <h4 className="text-sm font-extrabold text-stone-900">
+                        {edition.title}
+                      </h4>
+                      <p className="text-xs text-stone-600 mt-1 leading-relaxed">
+                        {edition.summary}
+                      </p>
+                    </div>
+
+                    {edition.view_url && (
+                      <div className="pt-2">
+                        <a
+                          href={edition.view_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-bold text-emerald-800 hover:underline inline-flex items-center gap-1"
+                        >
+                          Read Newsletter Edition →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Purchase & Receipt History Section */}
         <div className="bg-white border border-stone-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
@@ -324,7 +461,7 @@ export default function AccountPage() {
             </span>
           </div>
 
-          {/* Search Filter Bar (Active if customer has 2+ receipts) */}
+          {/* Search Filter Bar */}
           {orders.length > 1 && (
             <div className="pt-2">
               <div className="relative">
@@ -365,7 +502,6 @@ export default function AccountPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Max-height scrollable window to maintain a compact vertical profile */}
               <div className="max-h-[560px] overflow-y-auto space-y-3 pr-1 divide-y divide-stone-100">
                 {displayedOrders.map((order) => {
                   const isExpanded = expandedReceipt === order.receipt_number;
@@ -375,7 +511,6 @@ export default function AccountPage() {
                       key={order.receipt_number}
                       className="border border-stone-200 rounded-xl overflow-hidden transition first:mt-0 mt-3"
                     >
-                      {/* Compact Summary Header */}
                       <div
                         onClick={() => toggleReceipt(order.receipt_number)}
                         className="p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 cursor-pointer hover:bg-stone-50 select-none transition"
@@ -419,7 +554,6 @@ export default function AccountPage() {
                         </div>
                       </div>
 
-                      {/* Line Items Table */}
                       {isExpanded && (
                         <div className="border-t border-stone-200 bg-stone-50/70 p-4 space-y-3">
                           <div className="divide-y divide-stone-200 text-xs max-h-60 overflow-y-auto pr-1">
@@ -461,7 +595,6 @@ export default function AccountPage() {
                 })}
               </div>
 
-              {/* Show More / Show Less Controls */}
               {filteredOrders.length > visibleCount && (
                 <div className="pt-2 text-center">
                   <button
@@ -487,54 +620,6 @@ export default function AccountPage() {
               )}
             </div>
           )}
-        </div>
-
-        {/* Newsletter & Flock Updates Preferences */}
-        <div className="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-base font-extrabold text-stone-900">
-                Flock Updates &amp; Newsletter
-              </span>
-              <span
-                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
-                  marketingSubscribed
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-stone-100 text-stone-600'
-                }`}
-              >
-                {marketingSubscribed ? 'Subscribed' : 'Not Subscribed'}
-              </span>
-            </div>
-            <p className="text-xs text-stone-500 max-w-md">
-              Receive seasonal toy batches, nursery announcements, and exclusive workshop member discounts directly to{' '}
-              <span className="font-semibold text-stone-700">{client?.email}</span>.
-            </p>
-            {newsletterNotice && (
-              <p className="text-xs font-bold text-emerald-800 pt-1 transition">
-                {newsletterNotice}
-              </p>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleToggleNewsletter}
-            disabled={updatingMarketing}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-              marketingSubscribed
-                ? 'bg-stone-100 hover:bg-rose-50 text-stone-700 hover:text-rose-700 border border-stone-200'
-                : 'bg-[#065f46] hover:bg-[#044331] text-white shadow-sm'
-            } disabled:opacity-50`}
-          >
-            {updatingMarketing ? (
-              'Updating...'
-            ) : marketingSubscribed ? (
-              'Unsubscribe'
-            ) : (
-              'Subscribe to Updates'
-            )}
-          </button>
         </div>
 
         {/* Profile & Shipping Address Editor */}
