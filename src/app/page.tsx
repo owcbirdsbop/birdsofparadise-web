@@ -64,7 +64,7 @@ export default function HomePage() {
             <strong>We do not ship live birds under any circumstance.</strong>
           </p>
           <p className="text-stone-600 text-sm leading-relaxed">
-            We invite prospective families to visit our Wichita nursery in person, spend unhurried time with our companions, and let the right bond form naturally with zero sales pressure.
+            We invite families to visit our Wichita Store in person, spend unhurried time with our companions, and let the right bond form naturally with zero sales pressure.
           </p>
         </div>
       </section>
