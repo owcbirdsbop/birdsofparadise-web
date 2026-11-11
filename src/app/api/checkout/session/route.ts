@@ -13,9 +13,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Cart is empty.' }, { status: 400 });
     }
 
-    const origin = req.headers.get('origin') || 'http://localhost:3000';
+    const origin = req.headers.get('origin') || 'https://birdsofparadiseks.net';
 
-    // Format line items for Stripe Checkout
+    // Format cart items for Stripe Checkout
     const line_items = items.map((item: any) => ({
       price_data: {
         currency: 'usd',
@@ -30,9 +30,8 @@ export async function POST(req: Request) {
       quantity: Number(item.quantity) || 1,
     }));
 
-    // Create session (customer_email is optional here—Stripe will ask for it if guest)
+    // In modern Stripe SDKs, omitted payment_method_types uses your dashboard's enabled payment methods (cards, Apple Pay, Google Pay, etc.)
     const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
       customer_email: customerEmail || undefined,
       line_items,
       mode: 'payment',
