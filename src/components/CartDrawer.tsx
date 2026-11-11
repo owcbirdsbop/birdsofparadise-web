@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useCart } from '@/context/CartContext';
+import { supabase } from '@/lib/supabaseClient';
 
 export default function CartDrawer() {
   const {
@@ -14,13 +15,76 @@ export default function CartDrawer() {
     totalItems,
   } = useCart();
 
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
   if (!isCartOpen) return null;
+
+  const handleCheckout = async () => {
+    if (cart.length === 0 || checkingOut) return;
+    setCheckingOut(true);
+    setCheckoutError(null);
+
+    try {
+      // 1. Fetch current signed-in user session if available
+      const { data: { user } } = await supabase.auth.getUser();
+
+      let clientCode = '';
+      let customerName = '';
+      const customerEmail = user?.email || '';
+
+      if (user) {
+        const { data: clientRecord } = await supabase
+          .from('clients')
+          .select('customer_code, first_name, last_name')
+          .eq('auth_user_id', user.id)
+          .maybeSingle();
+
+        if (clientRecord) {
+          clientCode = clientRecord.customer_code || '';
+          customerName = [clientRecord.first_name, clientRecord.last_name].filter(Boolean).join(' ');
+        }
+      }
+
+      // 2. Request Stripe Checkout Session
+      const res = await fetch('/api/checkout/session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          items: cart.map((item) => ({
+            sku: item.sku,
+            item_name: item.name,
+            price: item.retail_price,
+            quantity: item.quantity,
+          })),
+          customerEmail,
+          customerName,
+          clientCode,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || 'Failed to initialize secure checkout.');
+      }
+
+      // 3. Redirect to Stripe's hosted checkout page
+      window.location.href = data.url;
+    } catch (err: any) {
+      console.error('Checkout error:', err);
+      setCheckoutError(err.message || 'An unexpected error occurred during checkout.');
+      setCheckingOut(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden font-sans">
       {/* Darkened backdrop */}
       <div
-        onClick={() => setIsCartOpen(false)}
+        onClick={() => !checkingOut && setIsCartOpen(false)}
         className="absolute inset-0 bg-stone-900/60 backdrop-blur-sm transition-opacity"
       />
 
@@ -39,8 +103,9 @@ export default function CartDrawer() {
             </div>
             <button
               type="button"
+              disabled={checkingOut}
               onClick={() => setIsCartOpen(false)}
-              className="text-stone-400 hover:text-stone-700 text-xl font-bold p-1 rounded-md cursor-pointer"
+              className="text-stone-400 hover:text-stone-700 text-xl font-bold p-1 rounded-md cursor-pointer disabled:opacity-40"
             >
               ✕
             </button>
@@ -82,15 +147,16 @@ export default function CartDrawer() {
                       <div className="flex items-center border border-stone-200 rounded-md bg-stone-50">
                         <button
                           type="button"
+                          disabled={checkingOut}
                           onClick={() => updateQuantity(item.sku, -1)}
-                          className="px-2 py-0.5 text-xs font-bold text-stone-600 hover:bg-stone-200 rounded-l cursor-pointer"
+                          className="px-2 py-0.5 text-xs font-bold text-stone-600 hover:bg-stone-200 rounded-l cursor-pointer disabled:opacity-40"
                         >
                           -
                         </button>
                         <span className="px-2 text-xs font-extrabold text-stone-900">{item.quantity}</span>
                         <button
                           type="button"
-                          disabled={item.quantity >= item.web_stock}
+                          disabled={checkingOut || item.quantity >= item.web_stock}
                           onClick={() => updateQuantity(item.sku, 1)}
                           className="px-2 py-0.5 text-xs font-bold text-stone-600 hover:bg-stone-200 rounded-r cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                         >
@@ -100,8 +166,9 @@ export default function CartDrawer() {
 
                       <button
                         type="button"
+                        disabled={checkingOut}
                         onClick={() => removeFromCart(item.sku)}
-                        className="text-[11px] text-rose-600 hover:text-rose-800 font-semibold ml-auto cursor-pointer"
+                        className="text-[11px] text-rose-600 hover:text-rose-800 font-semibold ml-auto cursor-pointer disabled:opacity-40"
                       >
                         Remove
                       </button>
@@ -122,13 +189,48 @@ export default function CartDrawer() {
               <p className="text-[11px] text-stone-500">
                 Taxes and flat-rate workshop shipping calculated at checkout.
               </p>
+
+              {checkoutError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl font-semibold">
+                  ⚠️ {checkoutError}
+                </div>
+              )}
+
               <button
                 type="button"
-                onClick={() => alert(`Starting Stripe checkout session for $${subtotal.toFixed(2)}...`)}
-                className="w-full bg-emerald-800 hover:bg-emerald-900 text-white font-extrabold py-3.5 px-4 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+                disabled={checkingOut}
+                onClick={handleCheckout}
+                className="w-full bg-[#065f46] hover:bg-[#044331] text-white font-extrabold py-3.5 px-4 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-wait"
               >
-                <span>Proceed to Checkout</span>
-                <span>➔</span>
+                {checkingOut ? (
+                  <>
+                    <svg
+                      className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v8H4z"
+                      />
+                    </svg>
+                    <span>Connecting to Secure Checkout...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Proceed to Checkout</span>
+                    <span>➔</span>
+                  </>
+                )}
               </button>
             </div>
           )}
