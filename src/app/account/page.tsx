@@ -35,6 +35,11 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [successNotice, setSuccessNotice] = useState(false);
 
+  // Newsletter state
+  const [marketingSubscribed, setMarketingSubscribed] = useState(false);
+  const [updatingMarketing, setUpdatingMarketing] = useState(false);
+  const [newsletterNotice, setNewsletterNotice] = useState<string | null>(null);
+
   // Form fields
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
@@ -62,7 +67,7 @@ export default function AccountPage() {
           .eq('auth_user_id', user.id)
           .maybeSingle();
 
-        // 2. If not linked yet, fall back to email match and link auth_user_id
+        // 2. Fall back to email match and link auth_user_id
         if (!clientRecord && userEmail) {
           const { data: emailMatch } = await supabase
             .from('clients')
@@ -89,6 +94,10 @@ export default function AccountPage() {
           setState(clientRecord.shipping_address_province_state || clientRecord.state || '');
           setZip(clientRecord.shipping_address_postcode_zip_code || clientRecord.zip || '');
 
+          setMarketingSubscribed(
+            Boolean(clientRecord.opted_in_marketing || clientRecord.enable_promotional_emails === 1)
+          );
+
           // 3. Fetch sales history for this client
           if (clientRecord.customer_code) {
             const { data: salesRows, error: salesError } = await supabase
@@ -98,7 +107,6 @@ export default function AccountPage() {
               .order('sale_date', { ascending: false });
 
             if (!salesError && salesRows) {
-              // Group individual line items by receipt_number
               const receiptsMap: { [key: string]: ReceiptGroup } = {};
 
               salesRows.forEach((row: any) => {
@@ -132,7 +140,6 @@ export default function AccountPage() {
                 });
               });
 
-              // Convert dictionary to ordered array
               const sortedReceipts = Object.values(receiptsMap).sort(
                 (a, b) => new Date(b.sale_date).getTime() - new Date(a.sale_date).getTime()
               );
@@ -150,6 +157,37 @@ export default function AccountPage() {
 
     loadAccount();
   }, [router]);
+
+  const handleToggleNewsletter = async () => {
+    if (!client || updatingMarketing) return;
+    setUpdatingMarketing(true);
+    setNewsletterNotice(null);
+
+    const nextState = !marketingSubscribed;
+
+    const { error } = await supabase
+      .from('clients')
+      .update({
+        opted_in_marketing: nextState,
+        enable_promotional_emails: nextState ? 1 : 0,
+        marketing_opt_in_at: nextState ? new Date().toISOString() : null,
+      })
+      .eq('customer_code', client.customer_code);
+
+    if (!error) {
+      setMarketingSubscribed(nextState);
+      setNewsletterNotice(
+        nextState
+          ? '✓ Subscribed to Flock Updates & Workshop releases!'
+          : '✓ You have unsubscribed from marketing emails.'
+      );
+      setTimeout(() => setNewsletterNotice(null), 3500);
+    } else {
+      setNewsletterNotice('⚠️ Could not update email preferences. Try again.');
+    }
+
+    setUpdatingMarketing(false);
+  };
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -368,6 +406,54 @@ export default function AccountPage() {
               })}
             </div>
           )}
+        </div>
+
+        {/* Newsletter & Flock Updates Preferences */}
+        <div className="bg-white border border-stone-200 rounded-2xl p-6 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-base font-extrabold text-stone-900">
+                Flock Updates &amp; Newsletter
+              </span>
+              <span
+                className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${
+                  marketingSubscribed
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-stone-100 text-stone-600'
+                }`}
+              >
+                {marketingSubscribed ? 'Subscribed' : 'Not Subscribed'}
+              </span>
+            </div>
+            <p className="text-xs text-stone-500 max-w-md">
+              Receive seasonal toy batches, nursery announcements, and exclusive workshop member discounts directly to{' '}
+              <span className="font-semibold text-stone-700">{client?.email}</span>.
+            </p>
+            {newsletterNotice && (
+              <p className="text-xs font-bold text-emerald-800 pt-1 transition">
+                {newsletterNotice}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleToggleNewsletter}
+            disabled={updatingMarketing}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+              marketingSubscribed
+                ? 'bg-stone-100 hover:bg-rose-50 text-stone-700 hover:text-rose-700 border border-stone-200'
+                : 'bg-[#065f46] hover:bg-[#044331] text-white shadow-sm'
+            } disabled:opacity-50`}
+          >
+            {updatingMarketing ? (
+              'Updating...'
+            ) : marketingSubscribed ? (
+              'Unsubscribe'
+            ) : (
+              'Subscribe to Updates'
+            )}
+          </button>
         </div>
 
         {/* Profile & Shipping Address Editor */}
